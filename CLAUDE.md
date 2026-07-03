@@ -90,6 +90,40 @@ Detection quality is not uniform — be careful extending this:
   regex-only extraction, not a crash — the current step still gets asked
   again if nothing was confidently detected for it.
 
+**Acknowledgment message:** when a message captures at least one field beyond
+the one currently being asked, the bot says which fields it picked up (e.g.
+"Got it — I also picked up your street address, city/state/zip..., so those
+are 4 things I don't need to ask about separately") before continuing. This
+is the point of the feature for a demo — it makes the parsing visible instead
+of just quietly correct. Ordering in the message follows `steps[]` order, not
+detection order, so it reads the same as the form panel top-to-bottom.
+Trivial single-field answers (the normal one-question-at-a-time case) stay
+silent — the message only fires when something extra was actually caught.
+
+**Hardening (2026-07-03 stress-test pass):**
+- User-provided text always renders via `textContent`, never `innerHTML` —
+  confirmed an XSS payload (`<script>`, `onerror=`) renders as inert escaped
+  text, not executable markup. Keep it that way; never switch a bubble or
+  field to `innerHTML` for "rich formatting" without re-checking this.
+- `setFieldValue()` truncates any field value to `MAX_FIELD_LENGTH` (200
+  chars) with a trailing "…". This is a blanket safety net against huge
+  pastes (tested at 20k characters — extraction still found a buried email
+  with no perceptible slowdown, but without the cap the raw fallback text
+  would have dumped the entire blob into a form field). Always set field
+  values through `setFieldValue()`, not by writing `state.data[field]` and
+  calling `fillField()` separately, or this cap gets bypassed.
+- `BUSINESS_RE`'s capture charset originally excluded quotes/parens/brackets,
+  so a real-sounding business name like `Bob's "Bait & Tackle" (est. 1995)`
+  failed to match at all. Charset now includes `" ( ) [ ] - ! & ' . ,` —
+  if you extend this regex again, test against a business name with
+  punctuation before assuming it works.
+- Known, accepted (not fixed) limitations: multiple emails/phones in one
+  message only capture the first occurrence; non-English name intros (e.g.
+  French "Je m'appelle") aren't recognized since the intro-phrase list is
+  English-only. Both degrade to the safe fallback (ask again / leftover text
+  in the current field) rather than misfiring, which is the actual
+  robustness bar here — "never silently wrong," not "always right."
+
 ### Fuzzy-select fields
 
 The `insurance` step has `type: 'fuzzy-select'` instead of the default text

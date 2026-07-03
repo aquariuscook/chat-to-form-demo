@@ -693,6 +693,31 @@
   // insurance); heuristic and occasionally wrong for free-text fields (name,
   // business, referral) since those have no reliable shape to match on.
 
+  var FIELD_LABELS = {
+    name: 'name',
+    address: 'street address',
+    city: 'city/state/zip',
+    phone: 'phone number',
+    email: 'email',
+    business: 'business name',
+    insurance: 'insurance provider',
+    referral: 'referral source'
+  };
+
+  function buildAckMessage(fields) {
+    var labels = fields.map(function (f) { return FIELD_LABELS[f] || f; });
+    var joined;
+    if (labels.length === 1) {
+      joined = labels[0];
+    } else if (labels.length === 2) {
+      joined = labels[0] + ' and ' + labels[1];
+    } else {
+      joined = labels.slice(0, -1).join(', ') + ', and ' + labels[labels.length - 1];
+    }
+    var pronoun = labels.length === 1 ? "that's one thing" : 'those are ' + labels.length + ' things';
+    return "Got it — I also picked up your " + joined + " from that message, so " + pronoun + " I don't need to ask about separately.";
+  }
+
   var REFERRAL_KEYWORDS = [
     { re: /google/i, label: 'Google search' },
     { re: /facebook/i, label: 'Facebook' },
@@ -714,7 +739,7 @@
   var CITY_STATE_ZIP_RE = /\b([A-Za-z][A-Za-z\s]{1,20}),\s*([A-Za-z]{2}|[A-Za-z\s]{3,15})\s+(\d{5})(-\d{4})?\b/;
   var NAME_INTRO_RE = /\b(?:my name is|i'?m|i am|this is)\b/i;
   var NAME_CAPTURE_RE = /^\s+([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){0,2})/;
-  var BUSINESS_RE = /\b(?:(?:business(?:\s+name)?|company(?:\s+name)?)\s+(?:is\s+)?(?:called\s+)?|i (?:own|run)\s+)([A-Za-z0-9&',.\s]+?)(?=[,.;]|\band\b|\bmy\b|$)/i;
+  var BUSINESS_RE = /\b(?:(?:business(?:\s+name)?|company(?:\s+name)?)\s+(?:is\s+)?(?:called\s+)?|i (?:own|run)\s+)([A-Za-z0-9&'".,()\-\[\]!\s]+?)(?=[;]|\band\b|\bmy\b|$)/i;
 
   function stripMatchCI(text, matched) {
     var idx = text.toLowerCase().indexOf(matched.toLowerCase());
@@ -783,7 +808,7 @@
     }
     if (!state.data.business) {
       var bz = remaining.match(BUSINESS_RE);
-      if (bz) { found.business = bz[1].trim(); remaining = stripMatchCI(remaining, bz[0]); }
+      if (bz) { found.business = bz[1].trim().replace(/[,;\s]+$/, ''); remaining = stripMatchCI(remaining, bz[0]); }
     }
 
     return { found: found, remaining: remaining };
@@ -847,6 +872,20 @@
     }, 650);
   }
 
+  var MAX_FIELD_LENGTH = 200;
+
+  function truncateValue(value) {
+    if (value.length <= MAX_FIELD_LENGTH) return value;
+    return value.slice(0, MAX_FIELD_LENGTH).trim() + '…';
+  }
+
+  function setFieldValue(field, value) {
+    var truncated = truncateValue(value);
+    state.data[field] = truncated;
+    fillField(field, truncated);
+    return truncated;
+  }
+
   function fillField(field, value) {
     var el = document.querySelector('.form-field[data-field="' + field + '"]');
     if (!el) return;
@@ -908,24 +947,38 @@
 
     detectedFields.forEach(function (field) {
       if (Object.prototype.hasOwnProperty.call(state.data, field)) return;
-      state.data[field] = detected[field];
-      fillField(field, detected[field]);
+      setFieldValue(field, detected[field]);
     });
 
+    var extraFields = detectedFields
+      .filter(function (f) { return f !== currentStep.field; })
+      .sort(function (a, b) {
+        return steps.map(function (s) { return s.field; }).indexOf(a) -
+               steps.map(function (s) { return s.field; }).indexOf(b);
+      });
+    var ackMessage = extraFields.length > 0 ? buildAckMessage(extraFields) : null;
+
+    function proceed(fn) {
+      if (ackMessage) {
+        botSay(ackMessage, fn);
+      } else {
+        fn();
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(state.data, currentStep.field)) {
-      advance();
+      proceed(advance);
       return;
     }
 
     if (currentStep.type === 'fuzzy-select') {
-      processInsuranceAnswer(text);
+      proceed(function () { processInsuranceAnswer(text); });
       return;
     }
 
     var fallbackValue = detectedFields.length > 0 ? (extraction.remaining.trim() || text) : text;
-    state.data[currentStep.field] = fallbackValue;
-    fillField(currentStep.field, fallbackValue);
-    advance();
+    setFieldValue(currentStep.field, fallbackValue);
+    proceed(advance);
   }
 
   function processInsuranceAnswer(text) {
@@ -943,8 +996,7 @@
 
   function resolveFuzzyField(value) {
     var field = steps[state.stepIndex].field;
-    state.data[field] = value;
-    fillField(field, value);
+    setFieldValue(field, value);
     advance();
   }
 
