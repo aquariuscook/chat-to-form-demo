@@ -687,6 +687,108 @@
     };
   }
 
+  // ---------- One-shot multi-field extraction (demo) ----------
+  // Pattern-based, not an LLM (ADR-004 blocks backend/API calls). Reliable
+  // for structurally distinct fields (email, phone, address, city/state/zip,
+  // insurance); heuristic and occasionally wrong for free-text fields (name,
+  // business, referral) since those have no reliable shape to match on.
+
+  var REFERRAL_KEYWORDS = [
+    { re: /google/i, label: 'Google search' },
+    { re: /facebook/i, label: 'Facebook' },
+    { re: /instagram/i, label: 'Instagram' },
+    { re: /linkedin/i, label: 'LinkedIn' },
+    { re: /tiktok/i, label: 'TikTok' },
+    { re: /twitter|\bx\.com\b/i, label: 'Twitter/X' },
+    { re: /word of mouth|referr(?:al|ed)|\bfriend\b/i, label: 'Friend referral' },
+    { re: /event|conference|expo/i, label: 'Event/conference' },
+    { re: /podcast/i, label: 'Podcast' },
+    { re: /\bad\b|advertisement|commercial/i, label: 'Advertisement' },
+    { re: /yelp/i, label: 'Yelp' },
+    { re: /search engine|searched|searching/i, label: 'Search engine' }
+  ];
+
+  var EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+  var PHONE_RE = /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
+  var STREET_RE = /\d+\s+[A-Za-z0-9.]+(?:\s+[A-Za-z0-9.]+){0,3}?\s+(?:St(?:reet)?|Ave(?:nue)?|Rd|Road|Blvd|Boulevard|Dr(?:ive)?|Ln|Lane|Way|Ct|Court|Pl(?:ace)?|Cir(?:cle)?)\b\.?/i;
+  var CITY_STATE_ZIP_RE = /\b([A-Za-z][A-Za-z\s]{1,20}),\s*([A-Za-z]{2}|[A-Za-z\s]{3,15})\s+(\d{5})(-\d{4})?\b/;
+  var NAME_INTRO_RE = /\b(?:my name is|i'?m|i am|this is)\b/i;
+  var NAME_CAPTURE_RE = /^\s+([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){0,2})/;
+  var BUSINESS_RE = /\b(?:(?:business(?:\s+name)?|company(?:\s+name)?)\s+(?:is\s+)?(?:called\s+)?|i (?:own|run)\s+)([A-Za-z0-9&',.\s]+?)(?=[,.;]|\band\b|\bmy\b|$)/i;
+
+  function stripMatchCI(text, matched) {
+    var idx = text.toLowerCase().indexOf(matched.toLowerCase());
+    if (idx === -1) return text;
+    return text.slice(0, idx) + ' ' + text.slice(idx + matched.length);
+  }
+
+  function detectName(text) {
+    var intro = text.match(NAME_INTRO_RE);
+    if (!intro) return null;
+    var rest = text.slice(intro.index + intro[0].length);
+    var nameCapture = rest.match(NAME_CAPTURE_RE);
+    if (!nameCapture) return null;
+    return { value: nameCapture[1].trim(), matched: intro[0] + nameCapture[0] };
+  }
+
+  function detectInsuranceInText(text) {
+    var lower = text.toLowerCase();
+    for (var i = 0; i < INSURANCE_OPTIONS.length; i++) {
+      if (lower.indexOf(INSURANCE_OPTIONS[i].toLowerCase()) !== -1) {
+        return { value: INSURANCE_OPTIONS[i], matched: INSURANCE_OPTIONS[i] };
+      }
+    }
+    for (var key in INSURANCE_ALIASES) {
+      if (!Object.prototype.hasOwnProperty.call(INSURANCE_ALIASES, key)) continue;
+      var re = new RegExp('\\b' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      var m = text.match(re);
+      if (m) return { value: INSURANCE_ALIASES[key], matched: m[0] };
+    }
+    return null;
+  }
+
+  function extractFields(rawText) {
+    var found = {};
+    var remaining = rawText;
+
+    if (!state.data.email) {
+      var em = remaining.match(EMAIL_RE);
+      if (em) { found.email = em[0]; remaining = stripMatchCI(remaining, em[0]); }
+    }
+    if (!state.data.phone) {
+      var ph = remaining.match(PHONE_RE);
+      if (ph) { found.phone = ph[0].trim(); remaining = stripMatchCI(remaining, ph[0]); }
+    }
+    if (!state.data.address) {
+      var st = remaining.match(STREET_RE);
+      if (st) { found.address = st[0].trim(); remaining = stripMatchCI(remaining, st[0]); }
+    }
+    if (!state.data.city) {
+      var cz = remaining.match(CITY_STATE_ZIP_RE);
+      if (cz) { found.city = cz[0].trim(); remaining = stripMatchCI(remaining, cz[0]); }
+    }
+    if (!state.data.insurance) {
+      var ins = detectInsuranceInText(remaining);
+      if (ins) { found.insurance = ins.value; remaining = stripMatchCI(remaining, ins.matched); }
+    }
+    if (!state.data.referral) {
+      for (var i = 0; i < REFERRAL_KEYWORDS.length; i++) {
+        var rm = remaining.match(REFERRAL_KEYWORDS[i].re);
+        if (rm) { found.referral = REFERRAL_KEYWORDS[i].label; remaining = stripMatchCI(remaining, rm[0]); break; }
+      }
+    }
+    if (!state.data.name) {
+      var nm = detectName(remaining);
+      if (nm) { found.name = nm.value; remaining = stripMatchCI(remaining, nm.matched); }
+    }
+    if (!state.data.business) {
+      var bz = remaining.match(BUSINESS_RE);
+      if (bz) { found.business = bz[1].trim(); remaining = stripMatchCI(remaining, bz[0]); }
+    }
+
+    return { found: found, remaining: remaining };
+  }
+
   var state = {
     stepIndex: -1,
     data: {},
@@ -769,7 +871,10 @@
   }
 
   function advance() {
-    state.stepIndex++;
+    do {
+      state.stepIndex++;
+    } while (state.stepIndex < TOTAL && Object.prototype.hasOwnProperty.call(state.data, steps[state.stepIndex].field));
+
     if (state.stepIndex >= TOTAL) {
       completeFlow();
       return;
@@ -797,13 +902,29 @@
     var currentStep = steps[state.stepIndex];
     addBubble(text, 'user');
 
+    var extraction = extractFields(text);
+    var detected = extraction.found;
+    var detectedFields = Object.keys(detected);
+
+    detectedFields.forEach(function (field) {
+      if (Object.prototype.hasOwnProperty.call(state.data, field)) return;
+      state.data[field] = detected[field];
+      fillField(field, detected[field]);
+    });
+
+    if (Object.prototype.hasOwnProperty.call(state.data, currentStep.field)) {
+      advance();
+      return;
+    }
+
     if (currentStep.type === 'fuzzy-select') {
       processInsuranceAnswer(text);
       return;
     }
 
-    state.data[currentStep.field] = text;
-    fillField(currentStep.field, text);
+    var fallbackValue = detectedFields.length > 0 ? (extraction.remaining.trim() || text) : text;
+    state.data[currentStep.field] = fallbackValue;
+    fillField(currentStep.field, fallbackValue);
     advance();
   }
 

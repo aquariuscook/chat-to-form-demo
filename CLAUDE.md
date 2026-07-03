@@ -65,6 +65,31 @@ Current fields in order:
 
 To add a field: add a `<div class="form-group">` to the form panel and a new object to `steps[]`. Keep them in sync.
 
+### One-shot multi-field extraction (demo)
+
+Added 2026-07-03. `extractFields()` runs on every submitted message (not just
+the current step's answer) and pattern-matches for ALL not-yet-filled fields,
+not only the one currently being asked. Any field it finds gets filled and
+its question is skipped via `advance()`, which now walks forward to the next
+*unfilled* step instead of blindly incrementing.
+
+Detection quality is not uniform — be careful extending this:
+- **Reliable** (structural patterns): email, phone, street address,
+  city/state/zip, insurance (exact name or alias substring only, no fuzzy
+  matching — ambiguous insurance mentions inside a big message are
+  deliberately left alone rather than guessed).
+- **Heuristic** (keyword/phrase triggered, will misfire sometimes): name
+  (needs an explicit "my name is" / "I'm" / "I am" / "this is" lead-in —
+  bare names with no lead-in are NOT detected, since there's no reliable way
+  to tell a name from any other capitalized phrase), business (needs
+  "business is/called" or "company is/called" or "I own/run"), referral
+  (keyword list — google, facebook, friend, event, podcast, ad, yelp, etc.).
+- This is pattern matching, not an LLM (ADR-004 still blocks backend/API
+  calls). If a field's fallback value (whatever's left after stripping
+  detected chunks) looks wrong, that's the expected failure mode of
+  regex-only extraction, not a crash — the current step still gets asked
+  again if nothing was confidently detected for it.
+
 ### Fuzzy-select fields
 
 The `insurance` step has `type: 'fuzzy-select'` instead of the default text
