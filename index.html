@@ -282,9 +282,34 @@
     display: none;
   }
 
-  .mic-btn svg, .send-btn svg {
+  .mic-btn svg, .send-btn svg, .wake-btn svg {
     width: 18px;
     height: 18px;
+  }
+
+  .wake-btn.active {
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  .wake-btn.armed {
+    background: var(--green);
+    border-color: var(--green);
+    color: var(--on-accent);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .wake-btn.armed {
+      animation: wakePulse 1.2s ease-in-out infinite;
+    }
+    @keyframes wakePulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(79, 155, 114, 0.5); }
+      50% { box-shadow: 0 0 0 8px rgba(79, 155, 114, 0); }
+    }
+  }
+
+  .wake-btn.unsupported {
+    display: none;
   }
 
   /* ---------- Form panel ---------- */
@@ -481,6 +506,13 @@
           <line x1="8" y1="23" x2="16" y2="23"></line>
         </svg>
       </button>
+      <button type="button" class="icon-btn wake-btn" id="wakeBtn" aria-label="Toggle hands-free wake-word mode" title="Hands-free: say &quot;Hey Elementyl&quot;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 12a8 8 0 0 1 16 0"></path>
+          <path d="M4 12v3a2 2 0 0 0 2 2h1v-6H5a1 1 0 0 0-1 1z"></path>
+          <path d="M20 12v3a2 2 0 0 1-2 2h-1v-6h1a1 1 0 0 1 2 1z"></path>
+        </svg>
+      </button>
       <input type="text" id="chatInput" placeholder="Type your answer…" autocomplete="off" aria-label="Your answer">
       <button type="submit" class="icon-btn send-btn" id="sendBtn" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -494,7 +526,7 @@
   <section class="panel form-panel" id="formPanel">
     <div class="panel-header">
       <h1 class="display">Your Intake Form</h1>
-      <p id="progressLabel">0 of 7 fields complete</p>
+      <p id="progressLabel">0 of 8 fields complete</p>
     </div>
 
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
@@ -547,7 +579,7 @@
   </button>
   <button type="button" class="tab-btn" id="formTab" style="position:relative;">
     <span class="notif-dot" id="notifDot"></span>
-    <span class="tab-badge" id="formTabBadge">Form 0/7</span>
+    <span class="tab-badge" id="formTabBadge">Form 0/8</span>
   </button>
 </nav>
 
@@ -668,6 +700,7 @@
   var chatInput = document.getElementById('chatInput');
   var sendBtn = document.getElementById('sendBtn');
   var micBtn = document.getElementById('micBtn');
+  var wakeBtn = document.getElementById('wakeBtn');
   var progressFill = document.getElementById('progressFill');
   var progressLabel = document.getElementById('progressLabel');
   var completionBadge = document.getElementById('completionBadge');
@@ -746,10 +779,12 @@
 
   function completeFlow() {
     state.completed = true;
+    stopHandsFree();
     botSay("That's everything I need. Thank you for completing your intake — we'll be in touch soon.", function () {
       chatInput.disabled = true;
       sendBtn.disabled = true;
       micBtn.disabled = true;
+      wakeBtn.disabled = true;
       chatInput.placeholder = 'Intake complete';
     });
     completionBadge.classList.add('show');
@@ -827,6 +862,7 @@
   var SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
   var recognition = null;
   var listening = false;
+  var stopHandsFree = function () {};
 
   if (SpeechRecognitionCtor) {
     recognition = new SpeechRecognitionCtor();
@@ -878,9 +914,91 @@
         micUnavailable();
       }
     });
+
+    // ---------- Hands-free wake-word mode (demo) ----------
+    // Approximation only: continuous listening + trigger-phrase match, no
+    // dedicated wake-word engine. This means audio streams to the browser's
+    // speech service the whole time hands-free mode is on, not just after
+    // the wake word. Fine for a demo; call this out before shipping it.
+
+    var WAKE_PHRASE = 'hey elementyl';
+    var wakeRecognition = null;
+    var handsFreeOn = false;
+    var awaitingWakeAnswer = false;
+
+    function setupWakeRecognition() {
+      wakeRecognition = new SpeechRecognitionCtor();
+      wakeRecognition.continuous = true;
+      wakeRecognition.interimResults = false;
+      wakeRecognition.lang = 'en-US';
+
+      wakeRecognition.addEventListener('result', function (e) {
+        var transcript = e.results[e.results.length - 1][0].transcript.trim();
+
+        if (!awaitingWakeAnswer) {
+          if (transcript.toLowerCase().indexOf(WAKE_PHRASE) !== -1) {
+            awaitingWakeAnswer = true;
+            wakeBtn.classList.add('armed');
+            addBubble("I'm listening…", 'bot');
+          }
+          return;
+        }
+
+        awaitingWakeAnswer = false;
+        wakeBtn.classList.remove('armed');
+        handleAnswer(transcript);
+      });
+
+      wakeRecognition.addEventListener('end', function () {
+        if (handsFreeOn && !state.completed) {
+          try { wakeRecognition.start(); } catch (err) { /* already running */ }
+        }
+      });
+
+      wakeRecognition.addEventListener('error', function (e) {
+        if (HARD_FAILURE_ERRORS.indexOf(e.error) !== -1) {
+          handsFreeOn = false;
+          awaitingWakeAnswer = false;
+          wakeBtn.classList.remove('active', 'armed');
+          micUnavailable();
+        }
+      });
+    }
+
+    stopHandsFree = function () {
+      handsFreeOn = false;
+      awaitingWakeAnswer = false;
+      wakeBtn.classList.remove('active', 'armed');
+      if (wakeRecognition) {
+        try { wakeRecognition.stop(); } catch (err) { /* not running */ }
+      }
+    };
+
+    wakeBtn.addEventListener('click', function () {
+      if (state.completed) return;
+      if (!wakeRecognition) setupWakeRecognition();
+
+      if (handsFreeOn) {
+        stopHandsFree();
+        return;
+      }
+
+      handsFreeOn = true;
+      wakeBtn.classList.add('active');
+      addBubble('Hands-free mode on — say "Hey Elementyl" any time you want to answer by voice.', 'bot');
+      try {
+        wakeRecognition.start();
+      } catch (err) {
+        handsFreeOn = false;
+        wakeBtn.classList.remove('active');
+        micUnavailable();
+      }
+    });
   } else {
     micBtn.classList.add('unsupported');
     micBtn.disabled = true;
+    wakeBtn.classList.add('unsupported');
+    wakeBtn.disabled = true;
   }
 
   // ---------- Mobile tab switching ----------

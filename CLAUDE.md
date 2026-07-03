@@ -95,6 +95,25 @@ another page, that iframe needs `allow="microphone"` or voice input will
 always hit this fallback path**, regardless of the visitor's own browser
 permissions.
 
+### Hands-free wake-word mode (demo only)
+
+Added 2026-07-03. A second button (`#wakeBtn`, headset icon) next to the mic
+toggles continuous listening for the trigger phrase "hey elementyl". This is
+a client-side approximation, not a real wake-word engine — no third-party
+SDK, consistent with "no paid voice API without explicit instruction" above.
+
+Known tradeoffs, intentional for a demo, worth revisiting before anything
+production-facing:
+- While hands-free mode is on, audio streams continuously to the browser's
+  speech recognition service — not just after the wake phrase fires. A real
+  wake-word engine (e.g. Picovoice Porcupine) does on-device detection and
+  only sends audio after the trigger; this doesn't.
+- Matching is a plain substring check on the transcript, case-insensitive.
+  No fuzzy matching, no false-positive suppression.
+- The manual mic button's behavior (transcript → text box → user reviews →
+  sends) is unchanged and stays the default. Hands-free is a separate opt-in
+  toggle, not a replacement.
+
 ---
 
 ## Animations
