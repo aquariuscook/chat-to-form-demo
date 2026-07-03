@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elementyl Intelligence — Intake</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #F6F9F7;
+    --panel:     #EAF3EE;
+    --border:    #D2E3DA;
+    --ink:       #163832;
+    --blue:      #2C7DA0;
+    --green:     #4F9B72;
+    --on-accent: #FFFFFF;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Outfit', sans-serif;
+    font-weight: 400;
+  }
+
+  h1, h2, h3, .display {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 600;
+  }
+
+  button {
+    font-family: inherit;
+  }
+
+  /* ---------- App shell ---------- */
+
+  .app {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .chat-panel {
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+  }
+
+  .form-panel {
+    background: var(--panel);
+  }
+
+  .panel-header {
+    padding: 24px 28px 16px;
+    flex-shrink: 0;
+  }
+
+  .panel-header h1 {
+    font-size: 28px;
+    margin: 0 0 4px;
+    color: var(--ink);
+  }
+
+  .panel-header p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--green);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    opacity: 0.9;
+  }
+
+  /* ---------- Chat panel ---------- */
+
+  .chat-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .bubble {
+    max-width: 82%;
+    padding: 12px 16px;
+    border-radius: 16px;
+    font-size: 15px;
+    line-height: 1.45;
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bubble.enter, .chip-row.enter {
+      animation: bubbleIn 0.35s ease forwards;
+    }
+    @keyframes bubbleIn {
+      to { opacity: 1; transform: translateY(0); }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bubble, .chip-row { opacity: 1; transform: none; }
+  }
+
+  .bubble.bot {
+    align-self: flex-start;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+
+  .bubble.user {
+    align-self: flex-end;
+    background: var(--blue);
+    color: var(--on-accent);
+    border-bottom-right-radius: 4px;
+  }
+
+  .typing {
+    align-self: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 14px 18px;
+    border-radius: 16px;
+    border-bottom-left-radius: 4px;
+    display: flex;
+    gap: 4px;
+    width: fit-content;
+  }
+
+  .typing span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    opacity: 0.7;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .typing span {
+      animation: typingBounce 1.1s ease-in-out infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.15s; }
+    .typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingBounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
+      30% { transform: translateY(-4px); opacity: 1; }
+    }
+  }
+
+  .chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-self: flex-start;
+    max-width: 82%;
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  .chip {
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--blue);
+    background: var(--bg);
+    color: var(--blue);
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .chip:hover:not(:disabled) {
+    background: var(--blue);
+    color: var(--on-accent);
+  }
+
+  .chip:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  /* ---------- Chat input ---------- */
+
+  .chat-input-row {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 28px;
+    border-top: 1px solid var(--border);
+  }
+
+  .chat-input-row input[type="text"] {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 12px 18px;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+
+  .chat-input-row input[type="text"]:focus {
+    border-color: var(--blue);
+  }
+
+  .chat-input-row input[type="text"]:disabled {
+    opacity: 0.5;
+  }
+
+  .icon-btn {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    border-color: var(--blue);
+  }
+
+  .icon-btn:active:not(:disabled) {
+    transform: scale(0.94);
+  }
+
+  .icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .send-btn {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: var(--on-accent);
+  }
+
+  .mic-btn.listening {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: var(--on-accent);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .mic-btn.listening {
+      animation: micPulse 1.2s ease-in-out infinite;
+    }
+    @keyframes micPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(44, 125, 160, 0.45); }
+      50% { box-shadow: 0 0 0 8px rgba(44, 125, 160, 0); }
+    }
+  }
+
+  .mic-btn.unsupported {
+    display: none;
+  }
+
+  .mic-btn svg, .send-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* ---------- Form panel ---------- */
+
+  .form-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 28px 28px;
+  }
+
+  .progress-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    overflow: hidden;
+    margin: 0 28px 4px;
+    flex-shrink: 0;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--blue);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+
+  .completion-badge {
+    margin: 0 28px 16px;
+    padding: 10px 16px;
+    background: rgba(79, 155, 114, 0.12);
+    border: 1px solid var(--green);
+    border-radius: 10px;
+    color: var(--green);
+    font-size: 14px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .completion-badge.show {
+    display: flex;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--green);
+    opacity: 0.9;
+    margin-bottom: 6px;
+  }
+
+  .form-field {
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 15px;
+    color: var(--ink);
+    min-height: 20px;
+    transition: border-color 0.3s ease, background 0.3s ease;
+  }
+
+  .form-field.placeholder {
+    color: rgba(22, 56, 50, 0.4);
+    font-style: italic;
+  }
+
+  .form-field.filled {
+    border-color: var(--blue);
+    background: rgba(44, 125, 160, 0.06);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .form-field.flash {
+      animation: fieldFlash 0.6s ease;
+    }
+    @keyframes fieldFlash {
+      0% { background: rgba(79, 155, 114, 0.3); }
+      100% { background: rgba(44, 125, 160, 0.06); }
+    }
+  }
+
+  /* ---------- Mobile tab bar ---------- */
+
+  .tab-bar {
+    display: none;
+  }
+
+  /* ================= MOBILE ================= */
+
+  @media (max-width: 767px) {
+    .app {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+    }
+
+    .panel {
+      grid-column: 1;
+      grid-row: 1;
+      padding-bottom: 72px;
+    }
+
+    .panel.hidden {
+      display: none;
+    }
+
+    .chat-panel {
+      border-right: none;
+    }
+
+    .tab-bar {
+      display: flex;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 64px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      z-index: 10;
+    }
+
+    .tab-btn {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      background: none;
+      border: none;
+      color: var(--ink);
+      opacity: 0.55;
+      font-size: 13px;
+      cursor: pointer;
+      position: relative;
+      border-top: 2px solid transparent;
+    }
+
+    .tab-btn.active {
+      opacity: 1;
+      border-top-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .tab-badge {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    .notif-dot {
+      position: absolute;
+      top: 8px;
+      right: calc(50% - 22px);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      display: none;
+    }
+
+    .notif-dot.show {
+      display: block;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <section class="panel chat-panel" id="chatPanel">
+    <div class="panel-header">
+      <h1 class="display">Let's get started</h1>
+      <p>Elementyl Intelligence Intake</p>
+    </div>
+
+    <div class="chat-log" id="chatLog" aria-live="polite"></div>
+
+    <form class="chat-input-row" id="chatForm">
+      <button type="button" class="icon-btn mic-btn" id="micBtn" aria-label="Toggle voice input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+          <line x1="8" y1="23" x2="16" y2="23"></line>
+        </svg>
+      </button>
+      <input type="text" id="chatInput" placeholder="Type your answer…" autocomplete="off" aria-label="Your answer">
+      <button type="submit" class="icon-btn send-btn" id="sendBtn" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </form>
+  </section>
+
+  <section class="panel form-panel" id="formPanel">
+    <div class="panel-header">
+      <h1 class="display">Your Intake Form</h1>
+      <p id="progressLabel">0 of 7 fields complete</p>
+    </div>
+
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+    <div class="completion-badge" id="completionBadge">
+      <span>&#10003;</span> All set — thank you for completing your intake.
+    </div>
+
+    <div class="form-scroll">
+      <div class="form-group">
+        <label for="f-name">Full Name</label>
+        <div class="form-field placeholder" id="f-name" data-field="name">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-address">Street Address</label>
+        <div class="form-field placeholder" id="f-address" data-field="address">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-city">City, State, ZIP</label>
+        <div class="form-field placeholder" id="f-city" data-field="city">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-phone">Phone Number</label>
+        <div class="form-field placeholder" id="f-phone" data-field="phone">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-email">Email Address</label>
+        <div class="form-field placeholder" id="f-email" data-field="email">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-business">Business Name</label>
+        <div class="form-field placeholder" id="f-business" data-field="business">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-insurance">Insurance Provider</label>
+        <div class="form-field placeholder" id="f-insurance" data-field="insurance">Waiting…</div>
+      </div>
+      <div class="form-group">
+        <label for="f-referral">How did you hear about us?</label>
+        <div class="form-field placeholder" id="f-referral" data-field="referral">Waiting…</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<nav class="tab-bar" id="tabBar">
+  <button type="button" class="tab-btn active" id="chatTab">
+    <span>Chat</span>
+  </button>
+  <button type="button" class="tab-btn" id="formTab" style="position:relative;">
+    <span class="notif-dot" id="notifDot"></span>
+    <span class="tab-badge" id="formTabBadge">Form 0/7</span>
+  </button>
+</nav>
+
+<script>
+(function () {
+  'use strict';
+
+  var steps = [
+    { field: 'name',      question: "Hi there! I'm here to get you set up. What's your full name?" },
+    { field: 'address',   question: "Nice to meet you. What's your street address?" },
+    { field: 'city',      question: "And the city, state, and ZIP for that address?" },
+    { field: 'phone',     question: "What's the best phone number to reach you?" },
+    { field: 'email',     question: "What's your email address?" },
+    { field: 'business',  question: "Do you have a business name? If it's just you, feel free to say \"N/A\"." },
+    { field: 'insurance', question: "What's your insurance provider?", type: 'fuzzy-select' },
+    { field: 'referral',  question: "Last one — how did you hear about us?" }
+  ];
+
+  var INSURANCE_OPTIONS = [
+    'Aetna',
+    'Anthem Blue Cross Blue Shield',
+    'Blue Cross Blue Shield of Texas',
+    'Blue Shield of California',
+    'Cigna',
+    'UnitedHealthcare',
+    'Humana',
+    'Kaiser Permanente',
+    'Molina Healthcare',
+    'Oscar Health',
+    'Medicare',
+    'Medicaid',
+    'TRICARE',
+    'Ambetter',
+    'Oxford Health Plans',
+    'EmblemHealth',
+    'Highmark',
+    'WellCare',
+    'None / Self-pay'
+  ];
+
+  var INSURANCE_ALIASES = {
+    'uhc': 'UnitedHealthcare',
+    'united healthcare': 'UnitedHealthcare',
+    'united health care': 'UnitedHealthcare',
+    'kaiser': 'Kaiser Permanente',
+    'medi cal': 'Medicaid',
+    'medical': 'Medicaid',
+    'obamacare': 'Ambetter',
+    'marketplace': 'Ambetter',
+    'self pay': 'None / Self-pay',
+    'no insurance': 'None / Self-pay',
+    'none': 'None / Self-pay',
+    'na': 'None / Self-pay'
+  };
+
+  function normalizeText(s) {
+    return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  function tokenize(s) {
+    var n = normalizeText(s);
+    return n ? n.split(' ') : [];
+  }
+
+  function matchInsurance(rawText) {
+    var norm = normalizeText(rawText);
+    if (!norm) return { status: 'none' };
+
+    for (var i = 0; i < INSURANCE_OPTIONS.length; i++) {
+      if (normalizeText(INSURANCE_OPTIONS[i]) === norm) {
+        return { status: 'match', value: INSURANCE_OPTIONS[i] };
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(INSURANCE_ALIASES, norm)) {
+      return { status: 'match', value: INSURANCE_ALIASES[norm] };
+    }
+
+    var userTokens = tokenize(rawText);
+    var scored = INSURANCE_OPTIONS.map(function (opt) {
+      var optTokens = tokenize(opt);
+      var hits = 0;
+      userTokens.forEach(function (t) {
+        var found = optTokens.some(function (ot) {
+          return ot.indexOf(t) !== -1 || t.indexOf(ot) !== -1;
+        });
+        if (found) hits++;
+      });
+      return { option: opt, score: hits };
+    }).filter(function (s) { return s.score > 0; })
+      .sort(function (a, b) { return b.score - a.score; });
+
+    if (scored.length === 0) return { status: 'none' };
+
+    var topScore = scored[0].score;
+    var topMatches = scored.filter(function (s) { return s.score === topScore; });
+
+    if (topMatches.length === 1 && userTokens.length > 0 && topScore >= userTokens.length) {
+      return { status: 'match', value: topMatches[0].option };
+    }
+
+    return {
+      status: 'ambiguous',
+      candidates: scored.slice(0, 3).map(function (s) { return s.option; })
+    };
+  }
+
+  var state = {
+    stepIndex: -1,
+    data: {},
+    filledCount: 0,
+    completed: false,
+    activePanel: 'chat'
+  };
+
+  var chatLog = document.getElementById('chatLog');
+  var chatForm = document.getElementById('chatForm');
+  var chatInput = document.getElementById('chatInput');
+  var sendBtn = document.getElementById('sendBtn');
+  var micBtn = document.getElementById('micBtn');
+  var progressFill = document.getElementById('progressFill');
+  var progressLabel = document.getElementById('progressLabel');
+  var completionBadge = document.getElementById('completionBadge');
+  var chatPanel = document.getElementById('chatPanel');
+  var formPanel = document.getElementById('formPanel');
+  var chatTab = document.getElementById('chatTab');
+  var formTab = document.getElementById('formTab');
+  var formTabBadge = document.getElementById('formTabBadge');
+  var notifDot = document.getElementById('notifDot');
+
+  var TOTAL = steps.length;
+
+  function addBubble(text, who) {
+    var b = document.createElement('div');
+    b.className = 'bubble ' + who + ' enter';
+    b.textContent = text;
+    chatLog.appendChild(b);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return b;
+  }
+
+  function showTyping() {
+    var t = document.createElement('div');
+    t.className = 'typing';
+    t.id = 'typingIndicator';
+    t.innerHTML = '<span></span><span></span><span></span>';
+    chatLog.appendChild(t);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function hideTyping() {
+    var t = document.getElementById('typingIndicator');
+    if (t) t.remove();
+  }
+
+  function botSay(text, cb) {
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      addBubble(text, 'bot');
+      if (cb) cb();
+    }, 650);
+  }
+
+  function fillField(field, value) {
+    var el = document.querySelector('.form-field[data-field="' + field + '"]');
+    if (!el) return;
+    el.textContent = value;
+    el.classList.remove('placeholder');
+    el.classList.add('filled', 'flash');
+    setTimeout(function () { el.classList.remove('flash'); }, 650);
+
+    state.filledCount++;
+    updateProgress();
+
+    if (state.activePanel === 'chat') {
+      notifDot.classList.add('show');
+    }
+  }
+
+  function updateProgress() {
+    var pct = Math.round((state.filledCount / TOTAL) * 100);
+    progressFill.style.width = pct + '%';
+    progressLabel.textContent = state.filledCount + ' of ' + TOTAL + ' fields complete';
+    formTabBadge.textContent = 'Form ' + state.filledCount + '/' + TOTAL;
+  }
+
+  function advance() {
+    state.stepIndex++;
+    if (state.stepIndex >= TOTAL) {
+      completeFlow();
+      return;
+    }
+    botSay(steps[state.stepIndex].question);
+  }
+
+  function completeFlow() {
+    state.completed = true;
+    botSay("That's everything I need. Thank you for completing your intake — we'll be in touch soon.", function () {
+      chatInput.disabled = true;
+      sendBtn.disabled = true;
+      micBtn.disabled = true;
+      chatInput.placeholder = 'Intake complete';
+    });
+    completionBadge.classList.add('show');
+  }
+
+  function handleAnswer(rawText) {
+    var text = rawText.trim();
+    if (!text || state.completed || state.stepIndex < 0) return;
+
+    var currentStep = steps[state.stepIndex];
+    addBubble(text, 'user');
+
+    if (currentStep.type === 'fuzzy-select') {
+      processInsuranceAnswer(text);
+      return;
+    }
+
+    state.data[currentStep.field] = text;
+    fillField(currentStep.field, text);
+    advance();
+  }
+
+  function processInsuranceAnswer(text) {
+    var result = matchInsurance(text);
+    if (result.status === 'match') {
+      resolveFuzzyField(result.value);
+    } else if (result.status === 'ambiguous') {
+      botSay('I found a few close matches — did you mean one of these?', function () {
+        addChips(result.candidates.concat(['Something else']));
+      });
+    } else {
+      botSay('I couldn\'t find that on file. Could you try the full plan name, or say "none" if you\'re self-pay?');
+    }
+  }
+
+  function resolveFuzzyField(value) {
+    var field = steps[state.stepIndex].field;
+    state.data[field] = value;
+    fillField(field, value);
+    advance();
+  }
+
+  function addChips(options) {
+    var row = document.createElement('div');
+    row.className = 'chip-row enter';
+    options.forEach(function (opt) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip';
+      btn.textContent = opt;
+      btn.addEventListener('click', function () {
+        Array.prototype.forEach.call(row.querySelectorAll('.chip'), function (c) { c.disabled = true; });
+        addBubble(opt, 'user');
+        if (opt === 'Something else') {
+          botSay('No problem — go ahead and type the full plan name.');
+        } else {
+          resolveFuzzyField(opt);
+        }
+      });
+      row.appendChild(btn);
+    });
+    chatLog.appendChild(row);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  chatForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var text = chatInput.value;
+    chatInput.value = '';
+    handleAnswer(text);
+  });
+
+  // ---------- Voice input ----------
+
+  var SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognition = null;
+  var listening = false;
+
+  if (SpeechRecognitionCtor) {
+    recognition = new SpeechRecognitionCtor();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.addEventListener('result', function (e) {
+      var transcript = e.results[0][0].transcript;
+      chatInput.value = transcript;
+      chatInput.focus();
+    });
+
+    recognition.addEventListener('end', function () {
+      listening = false;
+      micBtn.classList.remove('listening');
+    });
+
+    var HARD_FAILURE_ERRORS = ['not-allowed', 'service-not-allowed', 'audio-capture'];
+
+    function micUnavailable() {
+      listening = false;
+      micBtn.classList.remove('listening');
+      if (micBtn.classList.contains('unsupported')) return;
+      micBtn.classList.add('unsupported');
+      micBtn.disabled = true;
+      addBubble("Voice input isn't available here — mic access is blocked in this preview. Go ahead and type your answer instead.", 'bot');
+    }
+
+    recognition.addEventListener('error', function (e) {
+      listening = false;
+      micBtn.classList.remove('listening');
+      if (HARD_FAILURE_ERRORS.indexOf(e.error) !== -1) {
+        micUnavailable();
+      }
+    });
+
+    micBtn.addEventListener('click', function () {
+      if (state.completed) return;
+      if (listening) {
+        recognition.stop();
+        return;
+      }
+      listening = true;
+      micBtn.classList.add('listening');
+      try {
+        recognition.start();
+      } catch (err) {
+        micUnavailable();
+      }
+    });
+  } else {
+    micBtn.classList.add('unsupported');
+    micBtn.disabled = true;
+  }
+
+  // ---------- Mobile tab switching ----------
+
+  function setActivePanel(panel) {
+    state.activePanel = panel;
+    if (panel === 'chat') {
+      chatPanel.classList.remove('hidden');
+      formPanel.classList.add('hidden');
+      chatTab.classList.add('active');
+      formTab.classList.remove('active');
+    } else {
+      chatPanel.classList.add('hidden');
+      formPanel.classList.remove('hidden');
+      chatTab.classList.remove('active');
+      formTab.classList.add('active');
+      notifDot.classList.remove('show');
+    }
+  }
+
+  chatTab.addEventListener('click', function () { setActivePanel('chat'); });
+  formTab.addEventListener('click', function () { setActivePanel('form'); });
+
+  // ---------- Init ----------
+
+  setActivePanel('chat');
+  advance();
+
+})();
+</script>
+
+</body>
+</html>
