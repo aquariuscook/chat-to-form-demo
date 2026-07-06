@@ -756,6 +756,32 @@
     return CONVERSATIONAL_ASIDE_PATTERNS.some(function (re) { return re.test(text); });
   }
 
+  // Catches the user asking a genuine question back ("why do you need my
+  // phone number?", "is this required?") rather than answering. Distinct
+  // from isConversationalAside() above (which catches complaints/confusion)
+  // — a question gets a different, more helpful response: a one-line reason
+  // the field is asked for, then a re-ask, instead of an apology.
+  var QUESTION_LEAD_RE = /^\s*(why|what|is|are|do|does|did|can|could|should|would|will|who|where|when|how)\b/i;
+  var QUESTION_MARK_RE = /\?\s*$/;
+
+  function isLikelyQuestion(text) {
+    return QUESTION_MARK_RE.test(text) || QUESTION_LEAD_RE.test(text);
+  }
+
+  // Short, honest reasons for each field — used only when a question is
+  // detected on that field's turn. Keep these brief and true; this is a
+  // demo, not a place to oversell why the data is needed.
+  var FIELD_WHY = {
+    name: "just so we know who we're talking to",
+    address: 'so we can mail anything you might need',
+    city: 'same as your street address — just for mailing',
+    phone: 'in case we need to reach you quickly',
+    email: 'so we can follow up with next steps',
+    business: "totally optional — leave it blank or say \"N/A\" if it's just you",
+    insurance: 'so we can check what your plan covers before your visit',
+    referral: 'just so we know what\'s working for us'
+  };
+
   var REFERRAL_KEYWORDS = [
     { re: /google/i, label: 'Google search' },
     { re: /facebook/i, label: 'Facebook' },
@@ -1082,8 +1108,15 @@
     }
 
     if (detectedFields.length === 0 && isConversationalAside(text)) {
-      var label = FIELD_LABELS[currentStep.field] || currentStep.field;
-      botSay("Sorry about that — I don't actually have your " + label + " on file yet. Could you share it?");
+      var asideLabel = FIELD_LABELS[currentStep.field] || currentStep.field;
+      botSay("Sorry about that — I don't actually have your " + asideLabel + " on file yet. Could you share it?");
+      return;
+    }
+
+    if (detectedFields.length === 0 && isLikelyQuestion(text)) {
+      var qLabel = FIELD_LABELS[currentStep.field] || currentStep.field;
+      var why = FIELD_WHY[currentStep.field];
+      botSay('Good question' + (why ? ' — that\'s ' + why : '') + '. Could you go ahead and share your ' + qLabel + '?');
       return;
     }
 

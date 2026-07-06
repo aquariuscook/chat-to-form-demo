@@ -189,6 +189,30 @@ This only intercepts when `extractFields()` found nothing usable for the
 current field. If a message contains both a real answer AND a conversational
 aside, the real answer still wins.
 
+**Distinguishing a genuine question (added 2026-07-06, second pass):**
+`isConversationalAside()` only catches complaints/confusion — it did NOT
+catch the user actually asking something back ("why do you need my phone
+number?", "is this required?"), which used to get written straight into the
+current field as if it were the answer. `isLikelyQuestion()` catches that
+separately (ends in "?", or opens with a WH-word/auxiliary verb — why, what,
+is, are, do, does, can, could, should, would, will, who, where, when, how).
+It gets a *different* response than the aside case: `FIELD_WHY` holds a
+one-line honest reason per field, and the bot answers with that before
+re-asking ("Good question — that's in case we need to reach you quickly.
+Could you go ahead and share your phone number?") instead of just
+apologizing. Keep `FIELD_WHY` entries short and true — don't oversell why a
+demo form needs a piece of data.
+
+Same gate as the aside check (`detectedFields.length === 0` only) and same
+non-goal: this is pattern matching on sentence shape, not real intent
+understanding. "Whitney Houston" as a name doesn't false-positive (the
+WH-word check requires a full word match at a boundary — "why"/"what" as
+whole words, not "Wh-" as a prefix), but a business or referral answer that
+happens to start with one of these words and lacks other detected fields in
+the same message theoretically could. Accepted risk, same reasoning as the
+aside patterns above — this is about catching the common, real failure
+mode, not chasing every remaining false-positive to zero.
+
 ### Direct form editing (added 2026-07-06)
 
 Form fields are real `<input>` elements (were plain `<div>`s originally),
