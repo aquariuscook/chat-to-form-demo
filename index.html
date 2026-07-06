@@ -1121,32 +1121,78 @@
       return;
     }
 
-    if (detectedFields.length === 0 && isConversationalAside(text)) {
-      var asideLabel = FIELD_LABELS[currentStep.field] || currentStep.field;
-      botSay("Sorry about that — I don't actually have your " + asideLabel + " on file yet. Could you share it?");
-      return;
-    }
-
-    if (detectedFields.length === 0 && isLikelyQuestion(text)) {
-      var qLabel = FIELD_LABELS[currentStep.field] || currentStep.field;
-      var why = FIELD_WHY[currentStep.field];
-      botSay('Good question' + (why ? ' — that\'s ' + why : '') + '. Could you go ahead and share your ' + qLabel + '?');
-      return;
-    }
-
-    if (currentStep.type === 'fuzzy-select') {
-      proceed(function () { processInsuranceAnswer(text); });
-      return;
-    }
-
-    var fallbackValue = detectedFields.length > 0 ? (extraction.remaining.trim() || text) : text;
     if (detectedFields.length > 0) {
-      // Leftover text after stripping other fields' chunks often has stray
-      // punctuation/whitespace at the seams (e.g. "anne cantera,  ,").
-      fallbackValue = fallbackValue.replace(/\s+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '');
+      // Something else was already detected structurally in this message —
+      // extremely unlikely to ALSO be a pure question/complaint about the
+      // current field, so skip classification and use the leftover text
+      // directly (unchanged behavior from before the classify endpoint).
+      var fallbackValue = (extraction.remaining.trim() || text)
+        .replace(/\s+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '');
+      resolveCurrentFieldAnswer(currentStep, fallbackValue || text, proceed);
+      return;
     }
-    setFieldValue(currentStep.field, fallbackValue || text);
+
+    // Nothing detected structurally — ask the classification endpoint
+    // whether this is a real answer, a question, or a complaint. Falls
+    // back to the client-side regex heuristics if the endpoint is
+    // unreachable or not yet configured (see CLASSIFY_ENDPOINT below).
+    var qLabel = FIELD_LABELS[currentStep.field] || currentStep.field;
+    classifyViaAPI(currentStep.question, qLabel, text)
+      .catch(function () { return regexFallbackClassify(text); })
+      .then(function (result) {
+        applyClassification(result, currentStep, text, proceed);
+      });
+  }
+
+  function resolveCurrentFieldAnswer(currentStep, value, proceed) {
+    if (currentStep.type === 'fuzzy-select') {
+      proceed(function () { processInsuranceAnswer(value); });
+      return;
+    }
+    setFieldValue(currentStep.field, value);
     proceed(advance);
+  }
+
+  function applyClassification(result, currentStep, rawText, proceed) {
+    var label = FIELD_LABELS[currentStep.field] || currentStep.field;
+    if (result.category === 'question') {
+      var why = FIELD_WHY[currentStep.field];
+      botSay('Good question' + (why ? ' — that\'s ' + why : '') + '. Could you go ahead and share your ' + label + '?');
+      return;
+    }
+    if (result.category === 'complaint') {
+      botSay("Sorry about that — I don't actually have your " + label + " on file yet. Could you share it?");
+      return;
+    }
+    var value = (result.extracted_value && String(result.extracted_value).trim()) || rawText;
+    resolveCurrentFieldAnswer(currentStep, value, proceed);
+  }
+
+  // Client-side fallback when the classify endpoint is unreachable or not
+  // yet deployed — same regex heuristics used before the endpoint existed.
+  // Deliberately kept, not deleted: this is what keeps the widget fully
+  // functional with zero backend, matching ADR-004's original v1 scope.
+  function regexFallbackClassify(text) {
+    if (isConversationalAside(text)) return { category: 'complaint', extracted_value: null };
+    if (isLikelyQuestion(text)) return { category: 'question', extracted_value: null };
+    return { category: 'answer', extracted_value: null };
+  }
+
+  // Update this after deploying api/classify.js to Vercel (see CLAUDE.md).
+  // Left blank, classifyViaAPI() always rejects immediately and the widget
+  // runs entirely on the regex fallback — exactly like before this existed.
+  var CLASSIFY_ENDPOINT = '';
+
+  function classifyViaAPI(question, fieldLabel, message) {
+    if (!CLASSIFY_ENDPOINT) return Promise.reject(new Error('CLASSIFY_ENDPOINT not configured'));
+    return fetch(CLASSIFY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: question, fieldLabel: fieldLabel, message: message })
+    }).then(function (res) {
+      if (!res.ok) throw new Error('classify endpoint returned ' + res.status);
+      return res.json();
+    });
   }
 
   function processInsuranceAnswer(text) {

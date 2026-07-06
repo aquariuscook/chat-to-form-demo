@@ -284,6 +284,53 @@ Texas since they appear earlier in `INSURANCE_OPTIONS`). If you add more
 regional variants here, re-test the plain "Blue Cross" query specifically
 for this same collision.
 
+### Real intent classification via LLM (added 2026-07-06)
+
+This is the point where the project's "no backend, no API calls" v1
+constraint (ADR-004) was deliberately overridden — with explicit sign-off —
+because regex/keyword detection (`isConversationalAside`, `isLikelyQuestion`)
+has a real, permanent ceiling: it matches sentence *shapes*, not intent, so
+a genuinely novel phrasing of a question or complaint will always slip
+through as if it were field data. No amount of additional patterns closes
+that gap.
+
+**Architecture:** `api/classify.js` is a Vercel serverless function (Node,
+`@anthropic-ai/sdk`) that calls `claude-haiku-4-5` once per ambiguous
+message, with `output_config.format` (`json_schema`) forcing a clean
+`{category, extracted_value}` response — `category` is `answer` / `question`
+/ `complaint`. The API key lives server-side only (`ANTHROPIC_API_KEY` as a
+Vercel environment variable) — it must never be embedded in `index.html`,
+since that file is public source anyone can view.
+
+**Client wiring** (`classifyViaAPI` / `applyClassification` /
+`regexFallbackClassify` in `index.html`): only called when
+`extractFields()` found nothing structural in the message (same gate the
+old regex checks used). `CLASSIFY_ENDPOINT` is blank by default — until it's
+set to a real deployed URL, `classifyViaAPI()` rejects immediately and
+every message falls through to `regexFallbackClassify()`, which just calls
+the original `isConversationalAside`/`isLikelyQuestion` functions. **Those
+functions are kept, not deleted** — they're the fallback path when the
+endpoint is unreachable (network failure, CORS misconfiguration, Claude API
+outage), not dead code from the migration.
+
+**Deploying `api/classify.js` (not done yet — needs your credentials):**
+1. `cd chat-to-form && npx vercel login` (interactive browser OAuth — I can't complete this step for you)
+2. `npx vercel` to import the project (auto-detects `api/classify.js` as a serverless function alongside the static `index.html`)
+3. In the Vercel dashboard, set the `ANTHROPIC_API_KEY` environment variable on the project (your own Anthropic API key, not anyone else's)
+4. After deploy, copy the function's URL (`https://<project>.vercel.app/api/classify`) into `CLASSIFY_ENDPOINT` in `index.html`
+5. Update `ALLOWED_ORIGINS` in `api/classify.js` if the widget's hosting origin changes
+
+**CORS:** `api/classify.js` only allows requests from origins listed in
+`ALLOWED_ORIGINS` (currently the GitHub Pages URL + localhost for local
+testing) — it does not reflect an arbitrary `Origin` header. Add any new
+hosting origin there before pointing `CLASSIFY_ENDPOINT` at it.
+
+**Cost reality check:** this is no longer $0 to run. Haiku 4.5 is
+$1/$5 per million input/output tokens — a classification call is small
+(a couple hundred tokens each way), so per-message cost is fractions of a
+cent, but it's non-zero and scales with traffic. Fine for a demo; worth
+knowing before pointing this at real volume.
+
 ---
 
 ## Voice Input
@@ -344,7 +391,10 @@ All `@keyframes` animations must be inside `@media (prefers-reduced-motion: no-p
 ## What NOT to Do
 
 - Do not add localStorage or sessionStorage
-- Do not add a backend, API calls, or form submission in v1
+- Do not add a backend, API calls, or form submission beyond the one
+  explicitly-approved exception: `api/classify.js` (see "Real intent
+  classification via LLM" above). Any other new backend call still needs
+  the same explicit sign-off — this wasn't a blanket lift of the constraint.
 - Do not add React, Vue, or any JS framework
 - Do not use em dashes anywhere in copy or comments
 - Do not change brand colors or fonts
@@ -366,3 +416,5 @@ All `@keyframes` animations must be inside `@media (prefers-reduced-motion: no-p
 - [ ] Every form field is directly editable by clicking in and typing
 - [ ] Editing the field chat is currently waiting on advances the conversation past it
 - [ ] Clearing a field after full completion reopens the conversation and re-enables input
+- [ ] With `CLASSIFY_ENDPOINT` blank: questions/complaints/answers still classify correctly via the regex fallback (nothing regresses with no backend deployed)
+- [ ] Once `api/classify.js` is deployed and `CLASSIFY_ENDPOINT` is set: a genuinely novel question/complaint phrasing (not just the old regex-matched shapes) gets correctly classified instead of written into the field
