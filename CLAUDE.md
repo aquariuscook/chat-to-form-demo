@@ -6,7 +6,7 @@ This file tells Claude Code how to work on this project correctly.
 
 ## What This Is
 
-A single-file (`index.html`) chat-to-form intake widget for Elementyl Intelligence. A chatbot on the left asks questions one at a time. A form on the right populates in real time as the user answers. Voice and text input both work.
+A single-file (`index.html`) chat-to-form intake widget for Elementyl Intelligence. A chatbot on the left asks questions one at a time. A form on the right populates in real time as the user answers. Voice and text input both work. Form fields are also directly editable (click in and type) — not chat-only.
 
 ---
 
@@ -169,6 +169,42 @@ This only intercepts when `extractFields()` found nothing usable for the
 current field. If a message contains both a real answer AND a conversational
 aside, the real answer still wins.
 
+### Direct form editing (added 2026-07-06)
+
+Form fields are real `<input>` elements (were plain `<div>`s originally),
+editable by clicking directly into the form panel — not just through chat.
+This is a genuinely separate, simpler path from the chat flow, wired near
+the bottom of the script (`handleFieldCommit`, `reopenConversationIfNeeded`,
+and the `steps.forEach` listener setup right before Init):
+
+- Editing never runs fuzzy-select matching or conversational-aside
+  detection — those exist to interpret ambiguous natural language in chat;
+  someone clicking directly into "Insurance Provider" and typing has already
+  been unambiguous about intent, so whatever they type is taken literally.
+- Commit happens on `change` (blur) or Enter, not on every keystroke — the
+  `input` event only toggles the live `.filled` visual state as you type.
+- If the edited field is the one chat is currently waiting on, the
+  conversation advances past it (`wasCurrentQuestion` check in
+  `handleFieldCommit`) so the bot doesn't re-ask something already answered.
+  Filling a field out of order (chat is on step 3, user directly fills step
+  7) just writes silently — `advance()` already skips filled steps when
+  chat reaches that point naturally.
+- Clearing a field to empty after the intake is already complete reopens
+  the conversation: un-sets `state.completed`, re-enables chat/mic/wake
+  (unless permanently `.unsupported`), rewinds `state.stepIndex` to the
+  cleared field's position via `findFirstUnfilledIndex()`, and the bot
+  says so before re-asking. Clearing a field that's still ahead of where
+  chat currently is (hasn't been asked yet) just quietly un-fills it — no
+  reopening needed since it was never "closed."
+- `fillField()`'s new-vs-edit distinction (whether to increment
+  `filledCount`) is decided by `state.data` membership *before* the write,
+  computed in `setFieldValue()` — not by checking the `.filled` CSS class.
+  The live `input`-driven class toggle would otherwise make every commit
+  look like an edit to an already-"filled" element and silently break
+  progress counting for genuinely new fills. If you ever call `fillField()`
+  directly again instead of through `setFieldValue()`, you must pass the
+  `isNewFill` boolean yourself.
+
 ### Fuzzy-select fields
 
 The `insurance` step has `type: 'fuzzy-select'` instead of the default text
@@ -243,8 +279,11 @@ All `@keyframes` animations must be inside `@media (prefers-reduced-motion: no-p
 - [ ] Mobile (375px): tab bar visible, Chat tab active by default, Form tab shows badge count
 - [ ] Form tab notification dot appears when field fills while user is on Chat tab
 - [ ] Voice input toggles correctly on Chrome desktop and Chrome Android
-- [ ] All 7 fields populate correctly in order
-- [ ] Completion message appears after field 7
+- [ ] All 8 fields populate correctly in order
+- [ ] Completion message appears after field 8
 - [ ] Input is disabled after completion
 - [ ] `prefers-reduced-motion` disables keyframe animations
 - [ ] No em dashes in any text content
+- [ ] Every form field is directly editable by clicking in and typing
+- [ ] Editing the field chat is currently waiting on advances the conversation past it
+- [ ] Clearing a field after full completion reopens the conversation and re-enables input

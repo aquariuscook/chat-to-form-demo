@@ -370,19 +370,28 @@
   }
 
   .form-field {
+    display: block;
+    width: 100%;
     border: 1px solid var(--border);
     background: var(--bg);
     border-radius: 10px;
     padding: 14px 16px;
     font-size: 15px;
+    font-family: inherit;
     color: var(--ink);
     min-height: 20px;
     transition: border-color 0.3s ease, background 0.3s ease;
+    outline: none;
   }
 
-  .form-field.placeholder {
+  .form-field:focus {
+    border-color: var(--blue);
+  }
+
+  .form-field::placeholder {
     color: rgba(22, 56, 50, 0.4);
     font-style: italic;
+    opacity: 1;
   }
 
   .form-field.filled {
@@ -538,35 +547,35 @@
     <div class="form-scroll">
       <div class="form-group">
         <label for="f-name">Full Name</label>
-        <div class="form-field placeholder" id="f-name" data-field="name">Waiting…</div>
+        <input type="text" class="form-field" id="f-name" data-field="name" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-address">Street Address</label>
-        <div class="form-field placeholder" id="f-address" data-field="address">Waiting…</div>
+        <input type="text" class="form-field" id="f-address" data-field="address" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-city">City, State, ZIP</label>
-        <div class="form-field placeholder" id="f-city" data-field="city">Waiting…</div>
+        <input type="text" class="form-field" id="f-city" data-field="city" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-phone">Phone Number</label>
-        <div class="form-field placeholder" id="f-phone" data-field="phone">Waiting…</div>
+        <input type="text" class="form-field" id="f-phone" data-field="phone" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-email">Email Address</label>
-        <div class="form-field placeholder" id="f-email" data-field="email">Waiting…</div>
+        <input type="text" class="form-field" id="f-email" data-field="email" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-business">Business Name</label>
-        <div class="form-field placeholder" id="f-business" data-field="business">Waiting…</div>
+        <input type="text" class="form-field" id="f-business" data-field="business" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-insurance">Insurance Provider</label>
-        <div class="form-field placeholder" id="f-insurance" data-field="insurance">Waiting…</div>
+        <input type="text" class="form-field" id="f-insurance" data-field="insurance" placeholder="Waiting…">
       </div>
       <div class="form-group">
         <label for="f-referral">How did you hear about us?</label>
-        <div class="form-field placeholder" id="f-referral" data-field="referral">Waiting…</div>
+        <input type="text" class="form-field" id="f-referral" data-field="referral" placeholder="Waiting…">
       </div>
     </div>
   </section>
@@ -945,25 +954,37 @@
 
   function setFieldValue(field, value) {
     var truncated = truncateValue(value);
+    var isNewFill = !Object.prototype.hasOwnProperty.call(state.data, field);
     state.data[field] = truncated;
-    fillField(field, truncated);
+    fillField(field, truncated, isNewFill);
     return truncated;
   }
 
-  function fillField(field, value) {
+  function fillField(field, value, isNewFill) {
     var el = document.querySelector('.form-field[data-field="' + field + '"]');
     if (!el) return;
-    el.textContent = value;
-    el.classList.remove('placeholder');
+    el.value = value;
     el.classList.add('filled', 'flash');
     setTimeout(function () { el.classList.remove('flash'); }, 650);
 
-    state.filledCount++;
-    updateProgress();
+    if (isNewFill) {
+      state.filledCount++;
+      updateProgress();
+    }
 
     if (state.activePanel === 'chat') {
       notifDot.classList.add('show');
     }
+  }
+
+  function clearField(field) {
+    var el = document.querySelector('.form-field[data-field="' + field + '"]');
+    if (!el) return;
+    el.value = '';
+    el.classList.remove('filled', 'flash');
+    delete state.data[field];
+    state.filledCount = Math.max(0, state.filledCount - 1);
+    updateProgress();
   }
 
   function updateProgress() {
@@ -1269,6 +1290,75 @@
 
   chatTab.addEventListener('click', function () { setActivePanel('chat'); });
   formTab.addEventListener('click', function () { setActivePanel('form'); });
+
+  // ---------- Direct form editing ----------
+  // Editing a field in the form panel is a separate, simpler path than the
+  // chat flow: it never runs fuzzy-select matching or conversational-aside
+  // detection (those are chat-specific — a user clicking directly into a
+  // field is already unambiguous about intent). It just writes the value
+  // and, if that field happens to be the one chat is currently waiting on,
+  // advances the conversation so the bot doesn't ask a question that's
+  // already answered.
+
+  function findFirstUnfilledIndex() {
+    for (var i = 0; i < TOTAL; i++) {
+      if (!Object.prototype.hasOwnProperty.call(state.data, steps[i].field)) return i;
+    }
+    return TOTAL;
+  }
+
+  function reopenConversationIfNeeded(field) {
+    if (!state.completed) return;
+    state.completed = false;
+    completionBadge.classList.remove('show');
+    chatInput.disabled = false;
+    sendBtn.disabled = false;
+    if (!micBtn.classList.contains('unsupported')) micBtn.disabled = false;
+    if (!wakeBtn.classList.contains('unsupported')) wakeBtn.disabled = false;
+    chatInput.placeholder = 'Type your answer…';
+    state.stepIndex = findFirstUnfilledIndex() - 1;
+    botSay('Looks like your ' + (FIELD_LABELS[field] || field) + " got cleared — mind giving that again?", advance);
+  }
+
+  function handleFieldCommit(field, rawValue) {
+    var value = rawValue.trim();
+    var hadValue = Object.prototype.hasOwnProperty.call(state.data, field);
+
+    if (!value) {
+      if (!hadValue) return;
+      clearField(field);
+      reopenConversationIfNeeded(field);
+      return;
+    }
+
+    if (hadValue && state.data[field] === value) return;
+
+    var wasCurrentQuestion = !state.completed && state.stepIndex >= 0 &&
+      state.stepIndex < TOTAL && steps[state.stepIndex].field === field;
+
+    setFieldValue(field, value);
+
+    if (wasCurrentQuestion) {
+      advance();
+    }
+  }
+
+  steps.forEach(function (step) {
+    var el = document.querySelector('.form-field[data-field="' + step.field + '"]');
+    if (!el) return;
+    el.addEventListener('input', function () {
+      el.classList.toggle('filled', el.value.trim().length > 0);
+    });
+    el.addEventListener('change', function () {
+      handleFieldCommit(step.field, el.value);
+    });
+    el.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        el.blur();
+      }
+    });
+  });
 
   // ---------- Init ----------
 
