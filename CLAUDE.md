@@ -124,6 +124,51 @@ silent — the message only fires when something extra was actually caught.
   in the current field) rather than misfiring, which is the actual
   robustness bar here — "never silently wrong," not "always right."
 
+### City/state/zip without a comma (added 2026-07-06)
+
+`CITY_STATE_ZIP_COMMA_RE` (original, requires "City, State ZIP") is tried
+first; `CITY_STATE_ZIP_NOCOMMA_RE` is the fallback for input with no comma at
+all (e.g. "sayville ny 11782" typed all lowercase, no punctuation). The
+no-comma pattern anchors on a real US state name/abbreviation (`US_STATES`)
+immediately followed by a bare 5-digit number — that zip requirement is load
+bearing: 2-letter state codes (IN, OR, ME, HI, ...) double as ordinary English
+words, and without the zip anchor this would misfire constantly on normal
+sentences ("I heard about this from a friend, or google" would otherwise risk
+matching "or" as Oregon).
+
+The no-comma city capture is **exactly one word**, by design — not a
+"good enough for now" shortcut. Regex leftmost-match semantics mean a
+multi-word capture here doesn't just fail to grab 2-word cities like "Los
+Angeles" (which it does — only "Angeles" gets captured, "Los" leaks into
+whatever field asked before it) — it actively reaches backward past the real
+city boundary into unrelated preceding text (e.g. a name typed with no
+punctuation) when allowed 2+ words, because there's no comma to stop it early.
+Single-word-only is the deliberate trade: safe under-capture over unsafe
+over-capture. Do not loosen this without solving the boundary problem first.
+
+### Distinguishing an answer from a complaint (added 2026-07-06)
+
+`isConversationalAside()` catches messages that are talking ABOUT the
+conversation ("I already gave you that", "what do you mean", "can you
+repeat that") instead of answering the current question. Before this
+existed, literally any text — including a frustrated aside — got treated as
+the current field's answer verbatim (a user complaint like "I gave it to you
+already" would land straight in the City/State/ZIP field). When caught, the
+bot apologizes and re-asks by field label instead of advancing or writing
+anything to `state.data`.
+
+Deliberately does NOT include bare negations like "no"/"none"/"nevermind" —
+those are legitimate real answers on this form (business name accepts "N/A",
+insurance's alias list maps "none" to "None / Self-pay"), so a broad
+catch-all would misfire on valid input. The "already" + communication-verb
+check runs in either word order ("already told you" and "gave it to you
+already" both need to match — a fixed-order regex missed the second form
+during testing).
+
+This only intercepts when `extractFields()` found nothing usable for the
+current field. If a message contains both a real answer AND a conversational
+aside, the real answer still wins.
+
 ### Fuzzy-select fields
 
 The `insurance` step has `type: 'fuzzy-select'` instead of the default text

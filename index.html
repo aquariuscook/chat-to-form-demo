@@ -718,6 +718,35 @@
     return "Got it — I also picked up your " + joined + " from that message, so " + pronoun + " I don't need to ask about separately.";
   }
 
+  // Catches when the user is talking ABOUT the conversation (a complaint,
+  // a request to repeat, confusion) rather than answering the question.
+  // Deliberately narrow and phrased around explicit meta-language ("you",
+  // "already", "told", "understand", "repeat") rather than short negations
+  // like "no"/"none"/"nevermind" — those are legitimate real answers on
+  // fields like business name and insurance ("N/A", "none" both map to
+  // real values), so a broad catch-all here would misfire on valid input.
+  var CONVERSATIONAL_ASIDE_PATTERNS = [
+    /\byou\s+(already\s+)?have\s+(it|that|this)\b/i,
+    /\bi\s+(just\s+)?(told|said|gave|answered)\s+you\b/i,
+    /what do you mean/i,
+    /\b(can|could) you (repeat|say that again)\b/i,
+    /\bi don'?t understand\b/i,
+    /\bdidn'?t i\b/i,
+    /^\s*(what|huh)\s*\?+\s*$/i
+  ];
+
+  // "already" plus a communication verb, in EITHER order — "I already told
+  // you" and "I gave it to you already" both need to match, and word order
+  // varies enough in casual phrasing that a single fixed-order regex missed
+  // the second form during testing.
+  var ALREADY_RE = /\balready\b/i;
+  var COMM_VERB_RE = /\b(told|gave|said|answered|sent|provided|entered|filled|mentioned)\b/i;
+
+  function isConversationalAside(text) {
+    if (ALREADY_RE.test(text) && COMM_VERB_RE.test(text)) return true;
+    return CONVERSATIONAL_ASIDE_PATTERNS.some(function (re) { return re.test(text); });
+  }
+
   var REFERRAL_KEYWORDS = [
     { re: /google/i, label: 'Google search' },
     { re: /facebook/i, label: 'Facebook' },
@@ -736,7 +765,42 @@
   var EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
   var PHONE_RE = /(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/;
   var STREET_RE = /\d+\s+[A-Za-z0-9.]+(?:\s+[A-Za-z0-9.]+){0,3}?\s+(?:St(?:reet)?|Ave(?:nue)?|Rd|Road|Blvd|Boulevard|Dr(?:ive)?|Ln|Lane|Way|Ct|Court|Pl(?:ace)?|Cir(?:cle)?)\b\.?/i;
-  var CITY_STATE_ZIP_RE = /\b([A-Za-z][A-Za-z\s]{1,20}),\s*([A-Za-z]{2}|[A-Za-z\s]{3,15})\s+(\d{5})(-\d{4})?\b/;
+  var CITY_STATE_ZIP_COMMA_RE = /\b([A-Za-z][A-Za-z\s]{1,20}),\s*([A-Za-z]{2}|[A-Za-z\s]{3,15})\s+(\d{5})(-\d{4})?\b/;
+
+  var US_STATES = [
+    ['AL', 'Alabama'], ['AK', 'Alaska'], ['AZ', 'Arizona'], ['AR', 'Arkansas'], ['CA', 'California'],
+    ['CO', 'Colorado'], ['CT', 'Connecticut'], ['DE', 'Delaware'], ['FL', 'Florida'], ['GA', 'Georgia'],
+    ['HI', 'Hawaii'], ['ID', 'Idaho'], ['IL', 'Illinois'], ['IN', 'Indiana'], ['IA', 'Iowa'], ['KS', 'Kansas'],
+    ['KY', 'Kentucky'], ['LA', 'Louisiana'], ['ME', 'Maine'], ['MD', 'Maryland'], ['MA', 'Massachusetts'],
+    ['MI', 'Michigan'], ['MN', 'Minnesota'], ['MS', 'Mississippi'], ['MO', 'Missouri'], ['MT', 'Montana'],
+    ['NE', 'Nebraska'], ['NV', 'Nevada'], ['NH', 'New Hampshire'], ['NJ', 'New Jersey'], ['NM', 'New Mexico'],
+    ['NY', 'New York'], ['NC', 'North Carolina'], ['ND', 'North Dakota'], ['OH', 'Ohio'], ['OK', 'Oklahoma'],
+    ['OR', 'Oregon'], ['PA', 'Pennsylvania'], ['RI', 'Rhode Island'], ['SC', 'South Carolina'],
+    ['SD', 'South Dakota'], ['TN', 'Tennessee'], ['TX', 'Texas'], ['UT', 'Utah'], ['VT', 'Vermont'],
+    ['VA', 'Virginia'], ['WA', 'Washington'], ['WV', 'West Virginia'], ['WI', 'Wisconsin'], ['WY', 'Wyoming'],
+    ['DC', 'District of Columbia']
+  ];
+
+  // Longest-first so "New York" matches before a shorter alternative could
+  // steal a partial prefix. Requires a bare 5-digit number immediately after
+  // the state token as an anchor — deliberately strict, since 2-letter state
+  // codes (IN, OR, ME, HI, ...) double as common English words and would
+  // misfire constantly without that anchor.
+  var STATE_ALTERNATION = US_STATES
+    .map(function (s) { return s[1]; })
+    .concat(US_STATES.map(function (s) { return s[0]; }))
+    .sort(function (a, b) { return b.length - a.length; })
+    .join('|');
+
+  // No comma to mark where the city name ends, so the city capture is
+  // deliberately limited to exactly one word. Allowing 2+ words here would
+  // let the regex reach backward past the real city into whatever text came
+  // before it (e.g. a name typed with no punctuation) — safer to under-
+  // capture (miss multi-word cities like "Los Angeles") than to silently
+  // swallow an unrelated field.
+  var CITY_STATE_ZIP_NOCOMMA_RE = new RegExp(
+    '\\b([A-Za-z]+)\\s+(?:' + STATE_ALTERNATION + ')\\s+(\\d{5})(-\\d{4})?\\b', 'i'
+  );
   var NAME_INTRO_RE = /\b(?:my name is|i'?m|i am|this is)\b/i;
   var NAME_CAPTURE_RE = /^\s+([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){0,2})/;
   var BUSINESS_RE = /\b(?:(?:business(?:\s+name)?|company(?:\s+name)?)\s+(?:is\s+)?(?:called\s+)?|i (?:own|run)\s+)([A-Za-z0-9&'".,()\-\[\]!\s]+?)(?=[;]|\band\b|\bmy\b|$)/i;
@@ -789,7 +853,7 @@
       if (st) { found.address = st[0].trim(); remaining = stripMatchCI(remaining, st[0]); }
     }
     if (!state.data.city) {
-      var cz = remaining.match(CITY_STATE_ZIP_RE);
+      var cz = remaining.match(CITY_STATE_ZIP_COMMA_RE) || remaining.match(CITY_STATE_ZIP_NOCOMMA_RE);
       if (cz) { found.city = cz[0].trim(); remaining = stripMatchCI(remaining, cz[0]); }
     }
     if (!state.data.insurance) {
@@ -971,13 +1035,24 @@
       return;
     }
 
+    if (detectedFields.length === 0 && isConversationalAside(text)) {
+      var label = FIELD_LABELS[currentStep.field] || currentStep.field;
+      botSay("Sorry about that — I don't actually have your " + label + " on file yet. Could you share it?");
+      return;
+    }
+
     if (currentStep.type === 'fuzzy-select') {
       proceed(function () { processInsuranceAnswer(text); });
       return;
     }
 
     var fallbackValue = detectedFields.length > 0 ? (extraction.remaining.trim() || text) : text;
-    setFieldValue(currentStep.field, fallbackValue);
+    if (detectedFields.length > 0) {
+      // Leftover text after stripping other fields' chunks often has stray
+      // punctuation/whitespace at the seams (e.g. "anne cantera,  ,").
+      fallbackValue = fallbackValue.replace(/\s+/g, ' ').replace(/^[\s,;.]+|[\s,;.]+$/g, '');
+    }
+    setFieldValue(currentStep.field, fallbackValue || text);
     proceed(advance);
   }
 
