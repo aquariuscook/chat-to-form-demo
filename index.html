@@ -810,6 +810,29 @@
   var CITY_STATE_ZIP_NOCOMMA_RE = new RegExp(
     '\\b([A-Za-z]+)\\s+(?:' + STATE_ALTERNATION + ')\\s+(\\d{5})(-\\d{4})?\\b', 'i'
   );
+
+  // Last-resort: city + state with NEITHER a comma NOR a zip ("sayville ny",
+  // typed as the tail of a message with nothing after it). With no zip to
+  // anchor on, a 2-letter state code is just an ordinary short word most of
+  // the time, so this only fires when the state token is the very last
+  // thing in the message — a coincidental state-like word appearing mid-
+  // sentence ("a friend, or google, not sure") won't match, only one sitting
+  // at the end will. A handful of abbreviations that double as extremely
+  // common English words/interjections (OH, OK, IN, OR, ME, HI, MA, PA, CO)
+  // are excluded even here — "call you back ok" ending in "ok" is far more
+  // likely than someone actually living in Oklahoma reporting it that way.
+  var RISKY_STATE_ABBR_AS_LAST_WORD = ['OH', 'OK', 'IN', 'OR', 'ME', 'HI', 'MA', 'PA', 'CO'];
+  var STATE_ALTERNATION_END = US_STATES
+    .map(function (s) { return s[1]; })
+    .concat(US_STATES
+      .map(function (s) { return s[0]; })
+      .filter(function (abbr) { return RISKY_STATE_ABBR_AS_LAST_WORD.indexOf(abbr) === -1; }))
+    .sort(function (a, b) { return b.length - a.length; })
+    .join('|');
+  var CITY_STATE_NOCOMMA_END_RE = new RegExp(
+    '\\b([A-Za-z]+)\\s+(?:' + STATE_ALTERNATION_END + ')\\s*[.,!?]*\\s*$', 'i'
+  );
+
   var NAME_INTRO_RE = /\b(?:my name is|i'?m|i am|this is)\b/i;
   var NAME_CAPTURE_RE = /^\s+([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){0,2})/;
   var BUSINESS_RE = /\b(?:(?:business(?:\s+name)?|company(?:\s+name)?)\s+(?:is\s+)?(?:called\s+)?|i (?:own|run)\s+)([A-Za-z0-9&'".,()\-\[\]!\s]+?)(?=[;]|\band\b|\bmy\b|$)/i;
@@ -862,7 +885,9 @@
       if (st) { found.address = st[0].trim(); remaining = stripMatchCI(remaining, st[0]); }
     }
     if (!state.data.city) {
-      var cz = remaining.match(CITY_STATE_ZIP_COMMA_RE) || remaining.match(CITY_STATE_ZIP_NOCOMMA_RE);
+      var cz = remaining.match(CITY_STATE_ZIP_COMMA_RE) ||
+        remaining.match(CITY_STATE_ZIP_NOCOMMA_RE) ||
+        remaining.match(CITY_STATE_NOCOMMA_END_RE);
       if (cz) { found.city = cz[0].trim(); remaining = stripMatchCI(remaining, cz[0]); }
     }
     if (!state.data.insurance) {

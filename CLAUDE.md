@@ -146,6 +146,26 @@ punctuation) when allowed 2+ words, because there's no comma to stop it early.
 Single-word-only is the deliberate trade: safe under-capture over unsafe
 over-capture. Do not loosen this without solving the boundary problem first.
 
+**No zip either (added 2026-07-06, second pass):** the zip-anchored pattern
+above still missed the most common real case — a message that mentions a
+city and state but never gives a zip at all (e.g. "anne cantera 55 john st
+sayville ny", nothing after "ny"). Without a zip to anchor on, a bare
+2-letter state code is indistinguishable from an ordinary short word most of
+the time, so `CITY_STATE_NOCOMMA_END_RE` only fires when the state token is
+the very last thing in the message — a state-like word sitting mid-sentence
+("a friend, or google, not sure") won't match, only one at the tail end
+will. Even with that anchor, a handful of abbreviations are excluded outright
+(`RISKY_STATE_ABBR_AS_LAST_WORD`: OH, OK, IN, OR, ME, HI, MA, PA, CO) because
+they're common enough as ordinary last words ("call you back ok") that even
+end-of-message position doesn't make them safe. Full state names ("New
+York", "Texas") carry none of this risk and are never excluded.
+
+Three-tier fallback order in `extractFields()`, tried in this sequence:
+`CITY_STATE_ZIP_COMMA_RE` → `CITY_STATE_ZIP_NOCOMMA_RE` (zip required) →
+`CITY_STATE_NOCOMMA_END_RE` (no zip, end-anchored, risky abbreviations
+excluded). Each is strictly less certain than the one before it — that's
+intentional, try the safest pattern first.
+
 ### Distinguishing an answer from a complaint (added 2026-07-06)
 
 `isConversationalAside()` catches messages that are talking ABOUT the
