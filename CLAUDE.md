@@ -262,6 +262,28 @@ unmatched input re-prompts on the same field. Matching logic lives in
 still holds). Do not generalize this into a full branching config unless
 asked — it's intentionally scoped to this one field for the demo.
 
+**Confidence threshold (added 2026-07-06):** a single generic brand word
+("Anthem") used to auto-resolve silently against whatever option it
+happened to be the *only* match for, even when that option was a much
+longer, more specific name ("Anthem Blue Cross Blue Shield (Ohio)") — 1 of 6
+words matched was treated the same as 1 of 1. `matchInsurance()` now also
+requires the matched option's own token count to be within 2x the user's
+token count (`topMatches[0].tokenCount <= userTokens.length * 2`) before
+auto-accepting; otherwise it falls through to the ambiguous/clarification
+path (which works fine even with a single candidate — shows as one
+confirm-or-"something else" chip instead of a silent guess).
+
+`INSURANCE_OPTIONS` includes two Anthem regional variants (`Anthem Blue
+Cross (California)`, `Anthem Blue Cross Blue Shield (Ohio)`) specifically so
+"Anthem" alone has genuine ambiguity to clarify, rather than only one
+generic Anthem entry to rubber-stamp. Kept to exactly two, not more — a
+third collided with `Blue Cross Blue Shield of Texas` on token-count ties
+for the query "Blue Cross" and silently pushed Texas out of the top-3 chip
+slice (array order decides ties; the extra Anthem entries sorted ahead of
+Texas since they appear earlier in `INSURANCE_OPTIONS`). If you add more
+regional variants here, re-test the plain "Blue Cross" query specifically
+for this same collision.
+
 ---
 
 ## Voice Input
@@ -278,6 +300,19 @@ after this failed silently inside a sandboxed iframe preview with no
 another page, that iframe needs `allow="microphone"` or voice input will
 always hit this fallback path**, regardless of the visitor's own browser
 permissions.
+
+**Proactive iframe heads-up (added 2026-07-06):** the `not-allowed`/
+`.start()`-throws fallback above only fires *after* the user clicks mic and
+it fails — but inside a real sandboxed preview (tested against an actual
+share-link preview, not just simulated), the failure can be completely
+silent: no synchronous throw, no `error` event, ever. Clicking mic does
+nothing visible at all, which reads as broken rather than unsupported. Init
+now checks `window.self !== window.top` — if this page is running inside an
+iframe AND `SpeechRecognitionCtor` exists (so the mic button is visible and
+inviting a click), it proactively says up front that voice won't work here,
+before the user has a chance to click and be confused. Verified via an
+actual iframe wrapper page — the note appears when embedded, and does not
+appear when the file is loaded directly (not embedded).
 
 ### Hands-free wake-word mode (demo only)
 

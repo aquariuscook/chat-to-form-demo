@@ -609,7 +609,8 @@
 
   var INSURANCE_OPTIONS = [
     'Aetna',
-    'Anthem Blue Cross Blue Shield',
+    'Anthem Blue Cross (California)',
+    'Anthem Blue Cross Blue Shield (Ohio)',
     'Blue Cross Blue Shield of Texas',
     'Blue Shield of California',
     'Cigna',
@@ -677,7 +678,7 @@
         });
         if (found) hits++;
       });
-      return { option: opt, score: hits };
+      return { option: opt, score: hits, tokenCount: optTokens.length };
     }).filter(function (s) { return s.score > 0; })
       .sort(function (a, b) { return b.score - a.score; });
 
@@ -686,7 +687,20 @@
     var topScore = scored[0].score;
     var topMatches = scored.filter(function (s) { return s.score === topScore; });
 
-    if (topMatches.length === 1 && userTokens.length > 0 && topScore >= userTokens.length) {
+    // A single brand word ("Anthem") shouldn't silently win against a much
+    // longer, more specific option name ("Anthem Blue Cross Blue Shield
+    // (Ohio)") just because it's the only candidate that matched at all —
+    // covering 1 of 6 words is not the same confidence as covering 1 of 1.
+    // Require the match to cover at least half of the option's own tokens
+    // before treating it as settled; otherwise fall through to "ambiguous"
+    // (which still works fine with only one candidate — it shows as a
+    // single confirm-or-"something else" chip rather than an auto-accept).
+    var confident = topMatches.length === 1 &&
+      userTokens.length > 0 &&
+      topScore >= userTokens.length &&
+      topMatches[0].tokenCount <= userTokens.length * 2;
+
+    if (confident) {
       return { status: 'match', value: topMatches[0].option };
     }
 
@@ -1422,6 +1436,18 @@
 
   setActivePanel('chat');
   advance();
+
+  // If the mic would otherwise be visible and clickable, but this page is
+  // running inside an iframe (e.g. a shared preview link), voice almost
+  // certainly won't work — the host frame typically doesn't grant
+  // microphone permission, and the failure can be completely silent (no
+  // error event ever fires, unlike a same-origin permission denial). Say so
+  // up front instead of letting the user click mic and get nothing.
+  if (SpeechRecognitionCtor && window.self !== window.top) {
+    setTimeout(function () {
+      botSay("Quick note: voice input (mic and hands-free) won't work while this page is embedded in a preview frame — open it directly in your own browser tab to use it.");
+    }, 900);
+  }
 
 })();
 </script>
