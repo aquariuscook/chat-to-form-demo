@@ -1178,10 +1178,11 @@
     return { category: 'answer', extracted_value: null };
   }
 
-  // Update this after deploying api/classify.js to Vercel (see CLAUDE.md).
-  // Left blank, classifyViaAPI() always rejects immediately and the widget
-  // runs entirely on the regex fallback — exactly like before this existed.
-  var CLASSIFY_ENDPOINT = '';
+  // Deployed 2026-07-07: https://chat-to-form.vercel.app/api/classify
+  // If this ever goes blank again, classifyViaAPI() rejects immediately and
+  // the widget runs entirely on the regex fallback — no other code changes
+  // needed to degrade gracefully.
+  var CLASSIFY_ENDPOINT = 'https://chat-to-form.vercel.app/api/classify';
 
   function classifyViaAPI(question, fieldLabel, message) {
     if (!CLASSIFY_ENDPOINT) return Promise.reject(new Error('CLASSIFY_ENDPOINT not configured'));

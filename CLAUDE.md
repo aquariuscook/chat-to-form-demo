@@ -313,12 +313,31 @@ functions are kept, not deleted** — they're the fallback path when the
 endpoint is unreachable (network failure, CORS misconfiguration, Claude API
 outage), not dead code from the migration.
 
-**Deploying `api/classify.js` (not done yet — needs your credentials):**
-1. `cd chat-to-form && npx vercel login` (interactive browser OAuth — I can't complete this step for you)
-2. `npx vercel` to import the project (auto-detects `api/classify.js` as a serverless function alongside the static `index.html`)
-3. In the Vercel dashboard, set the `ANTHROPIC_API_KEY` environment variable on the project (your own Anthropic API key, not anyone else's)
-4. After deploy, copy the function's URL (`https://<project>.vercel.app/api/classify`) into `CLASSIFY_ENDPOINT` in `index.html`
-5. Update `ALLOWED_ORIGINS` in `api/classify.js` if the widget's hosting origin changes
+**Deployed 2026-07-07:** `https://chat-to-form.vercel.app/api/classify`,
+`CLASSIFY_ENDPOINT` in `index.html` points at it. Vercel project:
+`aquariuscooks-projects/chat-to-form`. Redeploy with `npx vercel --prod --yes`
+from this directory after any change to `api/classify.js` or the
+`ANTHROPIC_API_KEY` env var — **Vercel functions read env vars at deploy
+time, not live; changing the dashboard value alone does nothing until the
+next deploy.** This tripped up the initial setup twice (an empty value
+saved, then a value saved under the wrong variable name) before catching —
+if the live endpoint ever starts 502ing with "Could not resolve
+authentication method" in `vercel logs`, check `vercel env ls` for the
+actual variable name/presence before assuming a code bug.
+
+**Latency:** the classify call is a real network round trip (browser →
+Vercel → Anthropic API → back), roughly 1–2.5 seconds depending on network
+conditions — slower than the old instant regex check. Account for this in
+any test script wait times; a wait tuned for the pre-LLM regex path will
+read as a false failure here, not a real bug (this happened once during
+verification — "Blue Cross" appeared to not trigger the clarification chips
+in a 2000ms-wait test, but a 2500ms wait showed it working correctly the
+whole time).
+
+**CORS:** `api/classify.js` only allows requests from origins listed in
+`ALLOWED_ORIGINS` (currently the GitHub Pages URL + localhost for local
+testing) — it does not reflect an arbitrary `Origin` header. Add any new
+hosting origin there before pointing `CLASSIFY_ENDPOINT` at it.
 
 **CORS:** `api/classify.js` only allows requests from origins listed in
 `ALLOWED_ORIGINS` (currently the GitHub Pages URL + localhost for local
